@@ -74,6 +74,8 @@ __device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 extern __shared__ char array[];
 __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 
+	// Todo - would be more efficient if could use static input string and skip next instructions
+	
 	// If this is the first thread of the block, init the input string in shared memory
 	char* in = (char*) &array[0];
 	if (threadIdx.x == 0) {
@@ -85,6 +87,8 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 	uint64_t nonce = idx + nonce_offset;
 
+	// Todo - ensure this is not recalculated with float division every time
+
 	// The first byte we can write because there is the input string at the begining	
 	// Respects the memory padding of 8 bit (char).
 	size_t const minArray = static_cast<size_t>(ceil((in_input_string_size + 1) / 8.f) * 8);
@@ -94,23 +98,40 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 
 	unsigned char* sha = (unsigned char*)&array[sha_addr];
 	unsigned char* out = (unsigned char*)&array[nonce_addr];
+	// Todo - shouldn't need to memset
 	memset(out, 0, 32);
 
 	size_t size = nonce_to_str(nonce, out);
 
 	assert(size <= 32);
 
+	/* Todo - could likely improve hash performance by 
+	ensuring input is already appropriately padded.
+	So only transform needs to be called.
+	Could also check if compiler is making best use of 64-bit words.
+	*/
 	SHA256_CTX ctx;
 	sha256_init(&ctx);
-	sha256_update(&ctx, out, size);
 	sha256_update(&ctx, (unsigned char *)in, in_input_string_size);
+	sha256_update(&ctx, out, size);
 	sha256_final(&ctx, sha);
+	// Todo - should ideally treat sha as 64-bit number for counting leading zeros
 
+	#if 1
 	if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
+		// Todo - don't need hash. Just need nonce
 		memcpy(out_found_hash, sha, 32);
-		memcpy(out_input_string_nonce, out, size);
-		memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
+
+		// Modified
+		// Ignoring trailing string char
+		memcpy(out_input_string_nonce, in, in_input_string_size);		
+		memcpy(out_input_string_nonce + in_input_string_size, out, size);
+
+		// original version. Faster to just return nonce, although this is only encountered once
+		//memcpy(out_input_string_nonce, out, size);
+		//memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
 	}
+	#endif
 }
 
 void pre_sha256() {
@@ -139,7 +160,7 @@ void print_state() {
 	}
 
 	if (*g_found) {
-		std::cout << g_out << std::endl;
+		std::cout << "solution " << g_out << std::endl;
 		print_hash(g_hash_out);
 	}
 }
@@ -154,16 +175,23 @@ int main() {
 
 	std::string in;
 	
-	std::cout << "Entrez un message : ";
+	/*
+	std::cout << "Prefix : ";
 	std::cin >> in;
 
 
 	std::cout << "Nonce : ";
 	std::cin >> user_nonce;
 
-	std::cout << "Difficulte : ";
+	std::cout << "Num hex zeros: ";
 	std::cin >> difficulty;
 	std::cout << std::endl;
+	*/
+	in = "aaku8856-mifr0750-";
+	user_nonce = 8304979492741;
+	//difficulty = 8; // finds in 15 seconds
+	difficulty = 9; // finds in a few minutes
+
 
 
 	const size_t input_size = in.size();
