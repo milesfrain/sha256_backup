@@ -71,7 +71,9 @@ __device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 }
 
 
+// Shared between cores on a SM, but each thread indexs to separate location
 extern __shared__ char array[];
+//__global__ void sha256_kernel(int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 
 	// Todo - would be more efficient if could use static input string and skip next instructions
@@ -96,7 +98,9 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 	uintptr_t sha_addr = threadIdx.x * (64) + minArray;
 	uintptr_t nonce_addr = sha_addr + 32;
 
-	unsigned char* sha = (unsigned char*)&array[sha_addr];
+	// Changing to sha stored in register vs shared mem increased hash rate from 400 to 445
+	//unsigned char* sha = (unsigned char*)&array[sha_addr];
+	unsigned char sha[32];
 	unsigned char* out = (unsigned char*)&array[nonce_addr];
 	// Todo - shouldn't need to memset
 	memset(out, 0, 32);
@@ -130,6 +134,8 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 		// original version. Faster to just return nonce, although this is only encountered once
 		//memcpy(out_input_string_nonce, out, size);
 		//memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
+		//std::cout << "kernel found at nonce " << nonce << std::endl;
+		printf("kernel found at nonce %llu\n", nonce);
 	}
 	#endif
 }
@@ -188,11 +194,11 @@ int main() {
 	std::cout << std::endl;
 	*/
 	in = "aaku8856-mifr0750-";
-	user_nonce = 8304979492741;
+	user_nonce = 17050179084464;
 	//difficulty = 8; // finds in 15 seconds
-	difficulty = 9; // finds in a few minutes
-
-
+	//difficulty = 9; // finds in a few minutes
+	//difficulty = 12;
+	difficulty = 7;
 
 	const size_t input_size = in.size();
 
@@ -217,7 +223,8 @@ int main() {
 	std::cout << "Shared memory is " << dynamic_shared_size << "B" << std::endl;
 
 	for (;;) {
-		sha256_kernel << < NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >> > (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
+		sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >>> (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
+		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE >>> (g_found, nonce);
 
 		cudaError_t err = cudaDeviceSynchronize();
 		if (err != cudaSuccess) {
