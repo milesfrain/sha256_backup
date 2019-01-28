@@ -50,7 +50,6 @@ static const WORD host_k[64] = {
 };
 
 /*********************** FUNCTION DECLARATIONS **********************/
-char * print_sha(BYTE * buff);
 __device__ void sha256_init(SHA256_CTX *ctx);
 __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len);
 __device__ void sha256_final(SHA256_CTX *ctx);
@@ -88,9 +87,6 @@ __device__ void mycpy64(uint32_t *d, const uint32_t *s) {
 __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 {
 	WORD a, b, c, d, e, f, g, h, i, j, t1, t2, m[64];
-	WORD S[8];
-
-	//mycpy32(S, ctx->state);
 
 #pragma unroll 16
 	for (i = 0, j = 0; i < 16; ++i, j += 4)
@@ -100,7 +96,8 @@ __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 	for (; i < 64; ++i)
 		m[i] = SIG1(m[i - 2]) + m[i - 7] + SIG0(m[i - 15]) + m[i - 16];
 
-	// Simple state word reorder to allow 64-bit clz
+	// State indicies reordered (sequential pairs swapped) to allow 64-bit clz
+
 	a = ctx->state[1];
 	b = ctx->state[0];
 	c = ctx->state[3];
@@ -154,6 +151,8 @@ __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
 
 	//printf("sha_update len %d, %s\n", len, data);
 
+	// Transforms every 64 bytes (512 bits)
+
 	// for each byte in message
 	for (i = 0; i < len; ++i) {
 		// ctx->data == message 512 bit chunk
@@ -172,15 +171,14 @@ __device__ void sha256_final(SHA256_CTX *ctx)
 	WORD i;
 
 	i = ctx->datalen;
+	ctx->data[i++] = 0x80;
 
 	// Pad whatever data is left in the buffer.
 	if (ctx->datalen < 56) {
-		ctx->data[i++] = 0x80;
 		while (i < 56)
 			ctx->data[i++] = 0x00;
 	}
 	else {
-		ctx->data[i++] = 0x80;
 		while (i < 64)
 			ctx->data[i++] = 0x00;
 		sha256_transform(ctx, ctx->data);

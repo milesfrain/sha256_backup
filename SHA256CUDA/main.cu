@@ -67,7 +67,7 @@ extern __shared__ char array[];
 __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_offset) {
 //__global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 
-	#if 0
+	#if 1
 	if (threadIdx.x != 0)
 	{
 		return;
@@ -78,13 +78,18 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 	uint64_t nonce = idx + nonce_offset;
 	
-	const char* prefix = "aaku8856-mifr0750-";
+	// Allowing enough trailing zeros (16) so any 64-bit number in hex will fit without changing bit length
+	const char* prefix = "aaku8856-mifr0750-10000000000000000";
 	// There should be a way to get string literal length at compile time.
 	//const size_t prefix_len = strlen(prefix); // "host" code cannot run on device
-	const size_t prefix_len = 19; // hardcoding with terminating char included
+	const size_t prefix_len = 44; // hardcoding with terminating char included
 	char nonce_str[30];
 
-	size_t nonce_str_len = nonce_to_str(nonce, nonce_str);
+	char* input = "aaku8856-mifr0750-10000000000000000";
+	const size_t input_len = 35;
+
+
+	//size_t nonce_str_len = nonce_to_str(nonce, nonce_str);
 
 	/* Todo - could likely improve hash performance by 
 	ensuring input is already appropriately padded.
@@ -93,8 +98,9 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 	*/
 	SHA256_CTX ctx;
 	sha256_init(&ctx);
-	sha256_update(&ctx, (unsigned char*)prefix, prefix_len - 1);
-	sha256_update(&ctx, (unsigned char*)nonce_str, nonce_str_len);
+	//sha256_update(&ctx, (unsigned char*)prefix, prefix_len - 1);
+	//sha256_update(&ctx, (unsigned char*)nonce_str, nonce_str_len);
+	sha256_update(&ctx, (unsigned char*)input, input_len);
 	//sha256_update(&ctx, (unsigned char*)"abc123", 6);
 	//sha256_update(&ctx, (unsigned char*)"aaku8856-mifr0750-1", 18);
 	sha256_final(&ctx);
@@ -103,7 +109,8 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 	uint64_t *sha64 = (uint64_t*)ctx.state;
 
 	//printf("%s%llu ", prefix, nonce);
-	//print_sha(sha64);
+	printf("%s ", input);
+	print_sha(sha64);
 
 	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
 	if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
@@ -116,7 +123,8 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 
 		int leading = __clzll(*sha64);
 
-		printf("%d %s%llu ", leading, prefix, nonce);
+		//printf("%d %s%llu ", leading, prefix, nonce);
+		printf("%d %s ", leading, input);
 		print_sha(sha64);
 	}
 }
@@ -149,20 +157,25 @@ int main() {
 
 	for (;;) {
 		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >>> (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
-		sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE >>> (g_found, difficulty, nonce);
-		//sha256_kernel <<< 1, 32 >>> (g_found, difficulty, nonce);
+		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE >>> (g_found, difficulty, nonce);
+		sha256_kernel <<< 1, 32 >>> (g_found, difficulty, nonce);
 
 		cudaError_t err = cudaDeviceSynchronize();
 		if (err != cudaSuccess) {
 			throw std::runtime_error("Device error");
 		}
-		//break;
+		break;
 
 		nonce += NUMBLOCKS * BLOCK_SIZE;
 
 		if (*g_found) {
 			difficulty++;
 			*g_found = 0;
+
+			if (difficulty == 34)
+				break;
+			// Todo benchmarking by breaking once certain difficulty reached
+			// Allows testing without printing section below
 		}
 
 		// Print benchmarking info
