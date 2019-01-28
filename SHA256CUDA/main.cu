@@ -135,7 +135,32 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 		//memcpy(out_input_string_nonce, out, size);
 		//memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
 		//std::cout << "kernel found at nonce " << nonce << std::endl;
-		printf("kernel found at nonce %llu\n", nonce);
+		//printf("kernel found at nonce %llu\n", nonce);
+		printf("kernel found %s%llu : ", in, nonce);
+		for (size_t i = 0; i < 32; i++)
+		{
+			printf("%02x", sha[i]);
+		}
+		printf("\n");
+
+
+		#if 0
+		unsigned char foo[32] = {};
+		foo[0] = 3;
+		uint64_t *sha64 = (uint64_t*)foo;
+		#endif
+
+		for (int i = 0; i < 8; i++)
+			printf("ctx.state[%d] 0x%08x\n", i, ctx.state[i]);
+
+		uint64_t *sha64 = (uint64_t*)ctx.state;
+		for (int i = 0; i < 4; i++)
+			printf("64 ctx.state[%d] 0x%016llx\n", i, sha64[i]);
+
+		int leading = __clzll(*sha64);
+		printf("leading zeros %d\n", leading);
+
+
 	}
 	#endif
 }
