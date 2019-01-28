@@ -122,7 +122,9 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 	// Todo - should ideally treat sha as 64-bit number for counting leading zeros
 
 	#if 1
-	if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
+	uint64_t *sha64 = (uint64_t*)ctx.state;
+	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
+	if (__clzll(*sha64) >= (difficulty * 4) && atomicExch(out_found, 1) == 0) {
 		// Todo - don't need hash. Just need nonce
 		memcpy(out_found_hash, sha, 32);
 
@@ -153,7 +155,6 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 		for (int i = 0; i < 8; i++)
 			printf("ctx.state[%d] 0x%08x\n", i, ctx.state[i]);
 
-		uint64_t *sha64 = (uint64_t*)ctx.state;
 		for (int i = 0; i < 4; i++)
 			printf("64 ctx.state[%d] 0x%016llx\n", i, sha64[i]);
 
