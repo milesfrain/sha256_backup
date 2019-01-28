@@ -23,12 +23,6 @@
 #define KLOOPS 16
 //#define KLOOPS 1
 
-// First timestamp when program starts
-static std::chrono::high_resolution_clock::time_point t1;
-
-// Last timestamp we printed debug infos
-static std::chrono::high_resolution_clock::time_point t_last_updated;
-
 // Does the same as sprintf(char*, "%d%s", int, const char*) but a bit faster
 __device__ size_t nonce_to_str(uint64_t nonce, char* out) {
 	uint64_t result = nonce;
@@ -168,7 +162,7 @@ __global__ void sha256_kernel(int *out_found, int difficulty, uint64_t nonce_off
 		print_sha(sha64);
 		#endif
 
-		if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
+		if (__clzll(*sha64) >= difficulty) {
 			/*
 			Slow printf, but this is fine for when a match is found.
 			Possible interleaving print issue if another thread finds match
@@ -180,6 +174,8 @@ __global__ void sha256_kernel(int *out_found, int difficulty, uint64_t nonce_off
 
 			printf("%d %.35s ", leading, ctx.data);
 			print_sha(sha64);
+
+			*out_found = 1;
 		}
 	}
 
@@ -201,15 +197,19 @@ int main() {
 	cudaSetDevice(0);
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
-	t1 = std::chrono::high_resolution_clock::now();
-	t_last_updated = std::chrono::high_resolution_clock::now();
+	// First timestamp when program starts
+	std::chrono::high_resolution_clock::time_point t1 =
+		std::chrono::high_resolution_clock::now();
+
+	// Last timestamp we printed debug infos
+	std::chrono::high_resolution_clock::time_point t_last_updated = t1;
 
 	//user_nonce = 17050179084464;
-	user_nonce = 0;
+	user_nonce = 0x34980000000;
 	//difficulty = 8; // finds in 15 seconds
 	//difficulty = 9; // finds in a few minutes
 	//difficulty = 12;
-	difficulty = 28;
+	difficulty = 41;
 
 	cudaMallocManaged(&g_found, sizeof(int));
 	*g_found = 0;
