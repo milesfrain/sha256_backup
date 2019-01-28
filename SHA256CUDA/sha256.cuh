@@ -50,9 +50,11 @@ static const WORD host_k[64] = {
 };
 
 /*********************** FUNCTION DECLARATIONS **********************/
+#if 0
 __device__ void sha256_init(SHA256_CTX *ctx);
 __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len);
 __device__ void sha256_final(SHA256_CTX *ctx);
+#endif
 
 __device__ void mycpy12(uint32_t *d, const uint32_t *s) {
 #pragma unroll 3
@@ -131,6 +133,7 @@ __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
 	ctx->state[6] += h;
 }
 
+#if 0
 __device__ void sha256_init(SHA256_CTX *ctx)
 {
 	ctx->datalen = 0;
@@ -204,7 +207,7 @@ __device__ void sha256_final(SHA256_CTX *ctx)
 	ctx->data[57] = ctx->bitlen >> 48;
 	ctx->data[56] = ctx->bitlen >> 56;
 
-	#if 1
+	#if 0
 	for (i = 0; i < 64; i++)
 	{
 		printf("0x%02x, ", ctx->data[i]);
@@ -214,5 +217,6 @@ __device__ void sha256_final(SHA256_CTX *ctx)
 	
 	sha256_transform(ctx, ctx->data);
 }
+#endif
 
 #endif   // SHA256_H

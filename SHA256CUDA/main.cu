@@ -62,12 +62,13 @@ __device__ void print_sha(uint64_t *sha)
 	printf("\n");
 }
 
+//#define SINGLE
 // Shared between cores on a SM, but each thread indexs to separate location
 extern __shared__ char array[];
 __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_offset) {
 //__global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
 
-	#if 1
+	#ifdef SINGLE
 	if (threadIdx.x != 0)
 	{
 		return;
@@ -149,8 +150,11 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 
 	//printf("%s%llu ", prefix, nonce);
 	//printf("%s ", input);
+
+	#ifdef SINGLE
 	printf("%s ", ctx.data);
 	print_sha(sha64);
+	#endif
 
 	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
 	if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
@@ -198,14 +202,19 @@ int main() {
 
 	for (;;) {
 		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >>> (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
-		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE >>> (g_found, difficulty, nonce);
+#ifdef SINGLE
 		sha256_kernel <<< 1, 32 >>> (g_found, difficulty, nonce);
+#else
+		sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE >>> (g_found, difficulty, nonce);
+#endif
 
 		cudaError_t err = cudaDeviceSynchronize();
 		if (err != cudaSuccess) {
 			throw std::runtime_error("Device error");
 		}
+#ifdef SINGLE
 		break;
+#endif
 
 		nonce += NUMBLOCKS * BLOCK_SIZE;
 
