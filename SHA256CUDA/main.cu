@@ -70,6 +70,19 @@ __device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 	return i;
 }
 
+__device__ void print_sha(uint64_t *sha)
+{
+	//uint8_t *sha8 = (uint8_t*)sha;
+	for (int i = 0; i < 4; i++)
+	{
+		for (int j = 7; j >= 0; j--)
+		{
+			//printf("%02x", sha8[8*i + j]);
+			printf("%02x", ((uint8_t*)(sha + i))[j]);
+		}
+	}
+	printf("\n");
+}
 
 // Shared between cores on a SM, but each thread indexs to separate location
 extern __shared__ char array[];
@@ -138,25 +151,17 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 		//memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
 		//std::cout << "kernel found at nonce " << nonce << std::endl;
 		//printf("kernel found at nonce %llu\n", nonce);
-		printf("kernel found %s%llu : ", in, nonce);
-		for (size_t i = 0; i < 32; i++)
-		{
-			printf("%02x", sha[i]);
-		}
-		printf("\n");
 
+		
+		/*
+		Slow printf, but this is fine for when a match is found.
+		Possible interleaving print issue if another thread finds match
+		at exact same iteration, but this is super rare.
+		Otherwise other threads will wait until printing completes within conditional.
+		*/
 
-		#if 0
-		unsigned char foo[32] = {};
-		foo[0] = 3;
-		uint64_t *sha64 = (uint64_t*)foo;
-		#endif
-
-		for (int i = 0; i < 8; i++)
-			printf("ctx.state[%d] 0x%08x\n", i, ctx.state[i]);
-
-		for (int i = 0; i < 4; i++)
-			printf("64 ctx.state[%d] 0x%016llx\n", i, sha64[i]);
+		printf("kernel found %s%llu\n", in, nonce);
+		print_sha(sha64);
 
 		int leading = __clzll(*sha64);
 		printf("leading zeros %d\n", leading);
@@ -190,11 +195,6 @@ void print_state() {
 
 		std::cout << std::fixed << "Nonce : " << nonce << std::endl;
 	}
-
-	if (*g_found) {
-		std::cout << "solution " << g_out << std::endl;
-		print_hash(g_hash_out);
-	}
 }
 
 int main() {
@@ -220,7 +220,8 @@ int main() {
 	std::cout << std::endl;
 	*/
 	in = "aaku8856-mifr0750-";
-	user_nonce = 17050179084464;
+	//user_nonce = 17050179084464;
+	user_nonce = 1;
 	//difficulty = 8; // finds in 15 seconds
 	//difficulty = 9; // finds in a few minutes
 	//difficulty = 12;
