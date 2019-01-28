@@ -13,18 +13,10 @@
 
 #define SHOW_INTERVAL_MS 500
 #define BLOCK_SIZE 256
+//#define BLOCK_SIZE 512
 #define SHA_PER_ITERATIONS 8'388'608
+//#define SHA_PER_ITERATIONS 1048576
 #define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
-
-static size_t difficulty = 1;
-
-// Output string by the device read by host
-char *g_out = nullptr;
-unsigned char *g_hash_out = nullptr;
-int *g_found = nullptr;
-
-static uint64_t nonce = 0;
-static uint64_t user_nonce = 0;
 
 // First timestamp when program starts
 static std::chrono::high_resolution_clock::time_point t1;
@@ -50,6 +42,28 @@ __device__ size_t nonce_to_str(uint64_t nonce, char* out) {
 	return i;
 }
 
+// Wondering if constexpr would have worked here
+__device__ const char hex_lookup[] = {
+	'0', '1', '2', '3', '4', '5', '6', '7',
+	'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+
+__device__ void nonce_to_hex_str(uint64_t nonce, char* out) {
+	out += 16;
+	while (nonce)
+	{
+		*(--out) = hex_lookup[nonce & 0xF];
+		nonce >>= 4; 
+	}
+	#if 0
+#pragma unroll 16
+	for (int i = 0; i < 16; i++)
+	{
+		out[15 - i] = hex_lookup[nonce & 0xF];
+		nonce >>= 4; 
+	}
+	#endif
+}
+
 __device__ void print_sha(uint64_t *sha)
 {
 	for (int i = 0; i < 4; i++)
@@ -62,11 +76,13 @@ __device__ void print_sha(uint64_t *sha)
 	printf("\n");
 }
 
+// Wondering if allowing multiple iterations within kernel will improve performance
+//#define KLOOPS 16
+
 //#define SINGLE
 // Shared between cores on a SM, but each thread indexs to separate location
 extern __shared__ char array[];
-__global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_offset) {
-//__global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_found_hash, int *out_found, const char* in_input_string, size_t in_input_string_size, size_t difficulty, uint64_t nonce_offset) {
+__global__ void sha256_kernel(int *out_found, int difficulty, uint64_t nonce_offset) {
 
 	#ifdef SINGLE
 	if (threadIdx.x != 0)
@@ -110,53 +126,19 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 		}
 	};
 
-	nonce_to_str(nonce, (char*)ctx.data + 20);
+	//nonce_to_str(nonce, (char*)ctx.data + 20);
+	nonce_to_hex_str(nonce, (char*)ctx.data + 19);
+
+
 	sha256_transform(&ctx, ctx.data);
 
-	// Allowing enough trailing zeros (16) so any 64-bit number in hex will fit without changing bit length
-	//const char* prefix = "aaku8856-mifr0750-10000000000000000";
-
-	//ctx.data = "aaku8856-mifr0750-10000000000000000";
-	//ctx->bitlen = 140;
-	//sha256_final(&ctx);
-
-	// There should be a way to get string literal length at compile time.
-	//const size_t prefix_len = strlen(prefix); // "host" code cannot run on device
-	//const size_t prefix_len = 44; // hardcoding with terminating char included
-	//char nonce_str[30];
-
-	//char* input = "aaku8856-mifr0750-10000000000000000";
-	//const size_t input_len = 35;
-
-
-	//size_t nonce_str_len = nonce_to_str(nonce, nonce_str);
-
-	/* Todo - could likely improve hash performance by 
-	ensuring input is already appropriately padded.
-	So only transform needs to be called.
-	Could also check if compiler is making best use of 64-bit words.
-	*/
-	//sha256_update(&ctx, (unsigned char*)prefix, prefix_len - 1);
-	//sha256_update(&ctx, (unsigned char*)nonce_str, nonce_str_len);
-	//sha256_update(&ctx, (unsigned char*)input, input_len);
-	//sha256_update(&ctx, (unsigned char*)"abc123", 6);
-	//sha256_update(&ctx, (unsigned char*)"aaku8856-mifr0750-1", 18);
-	//sha256_final(&ctx);
-
-	//sha256_single_block_complete(&ctx, (unsigned char*)input, input_len);
-	// Todo - should ideally treat sha as 64-bit number for counting leading zeros
-
 	uint64_t *sha64 = (uint64_t*)ctx.state;
-
-	//printf("%s%llu ", prefix, nonce);
-	//printf("%s ", input);
 
 	#ifdef SINGLE
 	printf("%s ", ctx.data);
 	print_sha(sha64);
 	#endif
 
-	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
 	if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
 		/*
 		Slow printf, but this is fine for when a match is found.
@@ -167,11 +149,10 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 
 		int leading = __clzll(*sha64);
 
-		//printf("%d %s%llu ", leading, prefix, nonce);
-		//printf("%d %s ", leading, input);
 		printf("%d %s ", leading, ctx.data);
 		print_sha(sha64);
 	}
+
 }
 
 void pre_sha256() {
@@ -180,6 +161,16 @@ void pre_sha256() {
 
 int main() {
 
+	int difficulty = 1;
+
+	// Output string by the device read by host
+	char *g_out = nullptr;
+	char *g_hash_out = nullptr;
+	int *g_found = nullptr;
+
+	uint64_t nonce = 0;
+	uint64_t user_nonce = 0;
+
 	cudaSetDevice(0);
 	cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
 
@@ -187,7 +178,7 @@ int main() {
 	t_last_updated = std::chrono::high_resolution_clock::now();
 
 	//user_nonce = 17050179084464;
-	user_nonce = 1;
+	user_nonce = 0;
 	//difficulty = 8; // finds in 15 seconds
 	//difficulty = 9; // finds in a few minutes
 	//difficulty = 12;
@@ -201,7 +192,6 @@ int main() {
 	pre_sha256();
 
 	for (;;) {
-		//sha256_kernel <<< NUMBLOCKS, BLOCK_SIZE, dynamic_shared_size >>> (g_out, g_hash_out, g_found, d_in, input_size, difficulty, nonce);
 #ifdef SINGLE
 		sha256_kernel <<< 1, 32 >>> (g_found, difficulty, nonce);
 #else
@@ -222,12 +212,14 @@ int main() {
 			difficulty++;
 			*g_found = 0;
 
+			#if 0
+			// Enable profiling by breaking once certain difficulty reached
 			if (difficulty == 34)
 				break;
-			// Todo benchmarking by breaking once certain difficulty reached
-			// Allows testing without printing section below
+			#endif
 		}
 
+		#if 1
 		// Print benchmarking info
 		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 
@@ -235,10 +227,13 @@ int main() {
 		if (last_show_interval.count() > SHOW_INTERVAL_MS) {
 			t_last_updated = std::chrono::high_resolution_clock::now();
 			std::chrono::duration<double, std::milli> span = t2 - t1;
-			float ratio = span.count() / 1000;
-			uint64_t hashrate = static_cast<uint64_t>((nonce - user_nonce) / ratio);
-			std::cout << hashrate << " " << difficulty << " " << nonce << std::endl;
+			float seconds = span.count() / 1000;
+			uint64_t hashrate = static_cast<uint64_t>((nonce - user_nonce) / seconds);
+			//std::cout << hashrate << " " << difficulty << " " << nonce << std::endl;
+			printf("%lu %d 0x%lX\n", hashrate, difficulty, nonce);
+			//std::cout << hashrate << " " << difficulty << " " << nonce << std::endl;
 		}
+		#endif
 	}
 
 	cudaFree(g_found);
