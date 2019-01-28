@@ -32,26 +32,6 @@ static std::chrono::high_resolution_clock::time_point t1;
 // Last timestamp we printed debug infos
 static std::chrono::high_resolution_clock::time_point t_last_updated;
 
-__device__ bool checkZeroPadding(unsigned char* sha, size_t difficulty) {
-
-	for (size_t cur_byte = 0; cur_byte < difficulty / 2; ++cur_byte) {
-		if (sha[cur_byte] != 0) {
-			return false;
-		}
-	}
-
-	bool isOdd = difficulty % 2 != 0;
-	size_t last_byte_check = static_cast<size_t>(difficulty / 2);
-	if (isOdd) {
-		if (sha[last_byte_check] > 0x0F || sha[last_byte_check] == 0) {
-			return false;
-		}
-	}
-	else if (sha[last_byte_check] < 0x0F) return false;
-
-	return true;
-}
-
 // Does the same as sprintf(char*, "%d%s", int, const char*) but a bit faster
 __device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 	uint64_t result = nonce;
@@ -72,12 +52,10 @@ __device__ size_t nonce_to_str(uint64_t nonce, unsigned char* out) {
 
 __device__ void print_sha(uint64_t *sha)
 {
-	//uint8_t *sha8 = (uint8_t*)sha;
 	for (int i = 0; i < 4; i++)
 	{
 		for (int j = 7; j >= 0; j--)
 		{
-			//printf("%02x", sha8[8*i + j]);
 			printf("%02x", ((uint8_t*)(sha + i))[j]);
 		}
 	}
@@ -134,25 +112,9 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 	sha256_final(&ctx, sha);
 	// Todo - should ideally treat sha as 64-bit number for counting leading zeros
 
-	#if 1
 	uint64_t *sha64 = (uint64_t*)ctx.state;
 	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
-	if (__clzll(*sha64) >= (difficulty * 4) && atomicExch(out_found, 1) == 0) {
-		// Todo - don't need hash. Just need nonce
-		memcpy(out_found_hash, sha, 32);
-
-		// Modified
-		// Ignoring trailing string char
-		memcpy(out_input_string_nonce, in, in_input_string_size);		
-		memcpy(out_input_string_nonce + in_input_string_size, out, size);
-
-		// original version. Faster to just return nonce, although this is only encountered once
-		//memcpy(out_input_string_nonce, out, size);
-		//memcpy(out_input_string_nonce + size, in, in_input_string_size + 1);		
-		//std::cout << "kernel found at nonce " << nonce << std::endl;
-		//printf("kernel found at nonce %llu\n", nonce);
-
-		
+	if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
 		/*
 		Slow printf, but this is fine for when a match is found.
 		Possible interleaving print issue if another thread finds match
@@ -160,41 +122,15 @@ __global__ void sha256_kernel(char* out_input_string_nonce, unsigned char* out_f
 		Otherwise other threads will wait until printing completes within conditional.
 		*/
 
-		printf("kernel found %s%llu\n", in, nonce);
-		print_sha(sha64);
-
 		int leading = __clzll(*sha64);
-		printf("leading zeros %d\n", leading);
 
-
+		printf("%d %s%llu ", leading, in, nonce);
+		print_sha(sha64);
 	}
-	#endif
 }
 
 void pre_sha256() {
 	checkCudaErrors(cudaMemcpyToSymbol(dev_k, host_k, sizeof(host_k), 0, cudaMemcpyHostToDevice));
-}
-
-// Prints a 32 bytes sha256 to the hexadecimal form filled with zeroes
-void print_hash(const unsigned char* sha256) {
-	for (size_t i = 0; i < 32; ++i) {
-		std::cout << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(sha256[i]);
-	}
-	std::cout << std::dec << std::endl;
-}
-
-void print_state() {
-	std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
-
-	std::chrono::duration<double, std::milli> last_show_interval = t2 - t_last_updated;
-	if (last_show_interval.count() > SHOW_INTERVAL_MS) {
-		t_last_updated = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<double, std::milli> span = t2 - t1;
-		float ratio = span.count() / 1000;
-		std::cout << std::fixed << static_cast<uint64_t>((nonce - user_nonce) / ratio) << " hash(es)/s" << std::endl;
-
-		std::cout << std::fixed << "Nonce : " << nonce << std::endl;
-	}
 }
 
 int main() {
@@ -225,7 +161,7 @@ int main() {
 	//difficulty = 8; // finds in 15 seconds
 	//difficulty = 9; // finds in a few minutes
 	//difficulty = 12;
-	difficulty = 7;
+	difficulty = 28;
 
 	const size_t input_size = in.size();
 
@@ -260,10 +196,21 @@ int main() {
 
 		nonce += NUMBLOCKS * BLOCK_SIZE;
 
-		print_state();
-
 		if (*g_found) {
-			break;
+			difficulty++;
+			*g_found = 0;
+		}
+
+		// Print benchmarking info
+		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+
+		std::chrono::duration<double, std::milli> last_show_interval = t2 - t_last_updated;
+		if (last_show_interval.count() > SHOW_INTERVAL_MS) {
+			t_last_updated = std::chrono::high_resolution_clock::now();
+			std::chrono::duration<double, std::milli> span = t2 - t1;
+			float ratio = span.count() / 1000;
+			uint64_t hashrate = static_cast<uint64_t>((nonce - user_nonce) / ratio);
+			std::cout << hashrate << " " << difficulty << " " << nonce << std::endl;
 		}
 	}
 
