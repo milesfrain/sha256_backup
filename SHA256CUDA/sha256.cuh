@@ -145,6 +145,13 @@ __device__ void sha256_init(SHA256_CTX *ctx)
 	ctx->state[6] = 0x5be0cd19;
 }
 
+// Assuming single block with all fields populated
+__device__ void sha256_single_block_complete(SHA256_CTX *ctx)
+{
+
+}
+
+
 __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
 {
 	WORD i;
@@ -187,6 +194,7 @@ __device__ void sha256_final(SHA256_CTX *ctx)
 
 	// Append to the padding the total message's length in bits and transform.
 	ctx->bitlen += ctx->datalen * 8;
+	// Todo, can the below just be a 64-bit assignment?
 	ctx->data[63] = ctx->bitlen;
 	ctx->data[62] = ctx->bitlen >> 8;
 	ctx->data[61] = ctx->bitlen >> 16;
@@ -195,6 +203,15 @@ __device__ void sha256_final(SHA256_CTX *ctx)
 	ctx->data[58] = ctx->bitlen >> 40;
 	ctx->data[57] = ctx->bitlen >> 48;
 	ctx->data[56] = ctx->bitlen >> 56;
+
+	#if 1
+	for (i = 0; i < 64; i++)
+	{
+		printf("0x%02x, ", ctx->data[i]);
+	}
+	printf("\n");
+	#endif
+	
 	sha256_transform(ctx, ctx->data);
 }
 

@@ -46,7 +46,7 @@ __device__ size_t nonce_to_str(uint64_t nonce, char* out) {
 
 	out[0] = result + '0';
 	i = nonce_size;
-	out[i] = 0;
+	//out[i] = 0;
 	return i;
 }
 
@@ -78,15 +78,54 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 	uint64_t nonce = idx + nonce_offset;
 	
+	SHA256_CTX ctx = 
+	{
+		//.data = "aaku8856-mifr0750-10000000000000000",
+		// Includes initial string and terminating characters.
+		// Not maintainable, but doesn't require trusting compiler
+		.data = {
+			0x61, 0x61, 0x6b, 0x75, 0x38, 0x38, 0x35, 0x36,
+			0x2d, 0x6d, 0x69, 0x66, 0x72, 0x30, 0x37, 0x35,
+			0x30, 0x2d, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30,
+			0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
+			0x30, 0x30, 0x30, 0x80, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x18},
+		.datalen = 35,
+		.bitlen = 0,
+		// common state initialization value
+		// Possibly faster to setup here than call sha256_init,
+		// but could double-check assembly output to confirm.
+		.state = { 
+			0xbb67ae85,
+			0x6a09e667,
+			0xa54ff53a,
+			0x3c6ef372,
+			0x9b05688c,
+			0x510e527f,
+			0x5be0cd19,
+			0x1f83d9ab
+		}
+	};
+
+	nonce_to_str(nonce, (char*)ctx.data + 20);
+	sha256_transform(&ctx, ctx.data);
+
 	// Allowing enough trailing zeros (16) so any 64-bit number in hex will fit without changing bit length
-	const char* prefix = "aaku8856-mifr0750-10000000000000000";
+	//const char* prefix = "aaku8856-mifr0750-10000000000000000";
+
+	//ctx.data = "aaku8856-mifr0750-10000000000000000";
+	//ctx->bitlen = 140;
+	//sha256_final(&ctx);
+
 	// There should be a way to get string literal length at compile time.
 	//const size_t prefix_len = strlen(prefix); // "host" code cannot run on device
-	const size_t prefix_len = 44; // hardcoding with terminating char included
-	char nonce_str[30];
+	//const size_t prefix_len = 44; // hardcoding with terminating char included
+	//char nonce_str[30];
 
-	char* input = "aaku8856-mifr0750-10000000000000000";
-	const size_t input_len = 35;
+	//char* input = "aaku8856-mifr0750-10000000000000000";
+	//const size_t input_len = 35;
 
 
 	//size_t nonce_str_len = nonce_to_str(nonce, nonce_str);
@@ -96,20 +135,21 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 	So only transform needs to be called.
 	Could also check if compiler is making best use of 64-bit words.
 	*/
-	SHA256_CTX ctx;
-	sha256_init(&ctx);
 	//sha256_update(&ctx, (unsigned char*)prefix, prefix_len - 1);
 	//sha256_update(&ctx, (unsigned char*)nonce_str, nonce_str_len);
-	sha256_update(&ctx, (unsigned char*)input, input_len);
+	//sha256_update(&ctx, (unsigned char*)input, input_len);
 	//sha256_update(&ctx, (unsigned char*)"abc123", 6);
 	//sha256_update(&ctx, (unsigned char*)"aaku8856-mifr0750-1", 18);
-	sha256_final(&ctx);
+	//sha256_final(&ctx);
+
+	//sha256_single_block_complete(&ctx, (unsigned char*)input, input_len);
 	// Todo - should ideally treat sha as 64-bit number for counting leading zeros
 
 	uint64_t *sha64 = (uint64_t*)ctx.state;
 
 	//printf("%s%llu ", prefix, nonce);
-	printf("%s ", input);
+	//printf("%s ", input);
+	printf("%s ", ctx.data);
 	print_sha(sha64);
 
 	//if (checkZeroPadding(sha, difficulty) && atomicExch(out_found, 1) == 0) {
@@ -124,7 +164,8 @@ __global__ void sha256_kernel(int *out_found, size_t difficulty, uint64_t nonce_
 		int leading = __clzll(*sha64);
 
 		//printf("%d %s%llu ", leading, prefix, nonce);
-		printf("%d %s ", leading, input);
+		//printf("%d %s ", leading, input);
+		printf("%d %s ", leading, ctx.data);
 		print_sha(sha64);
 	}
 }
