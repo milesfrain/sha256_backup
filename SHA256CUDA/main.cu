@@ -14,9 +14,14 @@
 #define SHOW_INTERVAL_MS 500
 #define BLOCK_SIZE 256
 //#define BLOCK_SIZE 512
-#define SHA_PER_ITERATIONS 8'388'608
-//#define SHA_PER_ITERATIONS 1048576
+#define SHA_PER_ITERATIONS 8'388'608L
+//#define SHA_PER_ITERATIONS 1'048'576L
 #define NUMBLOCKS (SHA_PER_ITERATIONS + BLOCK_SIZE - 1) / BLOCK_SIZE
+
+// Wondering if allowing multiple iterations within kernel will improve performance
+// Yes, boosts performance from 1.35 MH to 1.5 MH
+#define KLOOPS 16
+//#define KLOOPS 1
 
 // First timestamp when program starts
 static std::chrono::high_resolution_clock::time_point t1;
@@ -55,6 +60,7 @@ __device__ void nonce_to_hex_str(uint64_t nonce, char* out) {
 		nonce >>= 4; 
 	}
 	#if 0
+	// Avoiding conditionals not always the best option
 #pragma unroll 16
 	for (int i = 0; i < 16; i++)
 	{
@@ -76,8 +82,6 @@ __device__ void print_sha(uint64_t *sha)
 	printf("\n");
 }
 
-// Wondering if allowing multiple iterations within kernel will improve performance
-//#define KLOOPS 16
 
 //#define SINGLE
 // Shared between cores on a SM, but each thread indexs to separate location
@@ -93,7 +97,8 @@ __global__ void sha256_kernel(int *out_found, int difficulty, uint64_t nonce_off
 	#endif
 
 	uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-	uint64_t nonce = idx + nonce_offset;
+	//uint64_t nonce = KLOOPS * KLOOPS * idx + nonce_offset;
+	uint64_t nonce = KLOOPS * idx + nonce_offset;
 	
 	SHA256_CTX ctx = 
 	{
@@ -128,29 +133,54 @@ __global__ void sha256_kernel(int *out_found, int difficulty, uint64_t nonce_off
 
 	//nonce_to_str(nonce, (char*)ctx.data + 20);
 	nonce_to_hex_str(nonce, (char*)ctx.data + 19);
-
-
-	sha256_transform(&ctx, ctx.data);
-
 	uint64_t *sha64 = (uint64_t*)ctx.state;
 
-	#ifdef SINGLE
-	printf("%s ", ctx.data);
-	print_sha(sha64);
-	#endif
 
-	if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
-		/*
-		Slow printf, but this is fine for when a match is found.
-		Possible interleaving print issue if another thread finds match
-		at exact same iteration, but this is super rare.
-		Otherwise other threads will wait until printing completes within conditional.
-		*/
+	// unroll surprisingly worse
+	//#pragma unroll
 
-		int leading = __clzll(*sha64);
+	// Could add another layer, but this doesn't improve performance
+	/*
+	for (int j = 0; j < KLOOPS; j++)
+	{
+		ctx.data[19 + 14] = hex_lookup[j];
+	*/
 
-		printf("%d %s ", leading, ctx.data);
+	for (int i = 0; i < KLOOPS; i++)
+	{
+		#if KLOOPS != 1
+		ctx.data[19 + 15] = hex_lookup[i];
+
+		ctx.state[0] = 0xbb67ae85;
+		ctx.state[1] = 0x6a09e667;
+		ctx.state[2] = 0xa54ff53a;
+		ctx.state[3] = 0x3c6ef372;
+		ctx.state[4] = 0x9b05688c;
+		ctx.state[5] = 0x510e527f;
+		ctx.state[6] = 0x5be0cd19;
+		ctx.state[7] = 0x1f83d9ab;
+		#endif
+
+		sha256_transform(&ctx, ctx.data);
+
+		#ifdef SINGLE
+		printf("%s ", ctx.data);
 		print_sha(sha64);
+		#endif
+
+		if (__clzll(*sha64) >= difficulty && atomicExch(out_found, 1) == 0) {
+			/*
+			Slow printf, but this is fine for when a match is found.
+			Possible interleaving print issue if another thread finds match
+			at exact same iteration, but this is super rare.
+			Otherwise other threads will wait until printing completes within conditional.
+			*/
+
+			int leading = __clzll(*sha64);
+
+			printf("%d %.35s ", leading, ctx.data);
+			print_sha(sha64);
+		}
 	}
 
 }
@@ -163,9 +193,6 @@ int main() {
 
 	int difficulty = 1;
 
-	// Output string by the device read by host
-	char *g_out = nullptr;
-	char *g_hash_out = nullptr;
 	int *g_found = nullptr;
 
 	uint64_t nonce = 0;
@@ -206,7 +233,8 @@ int main() {
 		break;
 #endif
 
-		nonce += NUMBLOCKS * BLOCK_SIZE;
+		//nonce += NUMBLOCKS * BLOCK_SIZE * KLOOPS * KLOOPS;
+		nonce += NUMBLOCKS * BLOCK_SIZE * KLOOPS;
 
 		if (*g_found) {
 			difficulty++;
