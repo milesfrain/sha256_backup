@@ -53,7 +53,7 @@ static const WORD host_k[64] = {
 char * print_sha(BYTE * buff);
 __device__ void sha256_init(SHA256_CTX *ctx);
 __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len);
-__device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[]);
+__device__ void sha256_final(SHA256_CTX *ctx);
 
 __device__ void mycpy12(uint32_t *d, const uint32_t *s) {
 #pragma unroll 3
@@ -152,6 +152,8 @@ __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
 {
 	WORD i;
 
+	//printf("sha_update len %d, %s\n", len, data);
+
 	// for each byte in message
 	for (i = 0; i < len; ++i) {
 		// ctx->data == message 512 bit chunk
@@ -165,7 +167,7 @@ __device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
 	}
 }
 
-__device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
+__device__ void sha256_final(SHA256_CTX *ctx)
 {
 	WORD i;
 
@@ -196,21 +198,6 @@ __device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 	ctx->data[57] = ctx->bitlen >> 48;
 	ctx->data[56] = ctx->bitlen >> 56;
 	sha256_transform(ctx, ctx->data);
-
-	#if 0
-	// Since this implementation uses little endian byte ordering and SHA uses big endian,
-	// reverse all the bytes when copying the final state to the output hash.
-	for (i = 0; i < 4; ++i) {
-		hash[i] = (ctx->state[0] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 4] = (ctx->state[1] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 8] = (ctx->state[2] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 12] = (ctx->state[3] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 16] = (ctx->state[4] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 20] = (ctx->state[5] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 24] = (ctx->state[6] >> (24 - i * 8)) & 0x000000ff;
-		hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
-	}
-	#endif
 }
 
 #endif   // SHA256_H
