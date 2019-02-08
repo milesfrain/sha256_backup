@@ -205,11 +205,11 @@ int main() {
 	std::chrono::high_resolution_clock::time_point t_last_updated = t1;
 
 	//user_nonce = 17050179084464;
-	user_nonce = 0x34980000000;
+	user_nonce = 0x4E7C0E0000000;
 	//difficulty = 8; // finds in 15 seconds
 	//difficulty = 9; // finds in a few minutes
 	//difficulty = 12;
-	difficulty = 41;
+	difficulty = 51;
 
 	cudaMallocManaged(&g_found, sizeof(int));
 	*g_found = 0;
